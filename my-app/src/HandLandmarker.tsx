@@ -10,10 +10,9 @@ const HandLandmarkerComponent: React.FC = () => {
   const webcamRef = useRef<Webcam | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const [handLandmarker, setHandLandmarker] = useState<HandLandmarker | null>(
-    null
-  ); // State for handLandmarker
+  const [handLandmarker, setHandLandmarker] = useState<HandLandmarker | null>(null); // State for handLandmarker
   const [model, setModel] = useState<any>(null); // State for the loaded model
+  const [predictedClass, setPredictedClass] = useState<string>(""); // State for predicted class (emoji)
 
   // Function to toggle the webcam on and off
   const toggleWebcam = async () => {
@@ -21,8 +20,7 @@ const HandLandmarkerComponent: React.FC = () => {
 
     if (canvasRef.current) {
       const ctx = canvasRef.current.getContext("2d");
-      if (ctx)
-        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     }
   };
 
@@ -91,7 +89,7 @@ const HandLandmarkerComponent: React.FC = () => {
 
       // Call the model prediction function
       if (model && result.landmarks.length > 0) {
-        detect2(model, processLandmarks(flattenedLandmarks));
+        await detect2(model, processLandmarks(flattenedLandmarks));
       }
     }
 
@@ -101,12 +99,9 @@ const HandLandmarkerComponent: React.FC = () => {
 
   function processLandmarks(landmarkArray: number[]): number[] {
     // Step 1: Convert to relative coordinates
-    let baseX = 0,
-      baseY = 0;
+    let baseX = 0, baseY = 0;
 
-    // We'll loop over the landmarks in pairs (x, y)
     for (let i = 0; i < landmarkArray.length; i += 2) {
-      // Initialize base to the first point in the list
       if (i === 0) {
         baseX = landmarkArray[i];
         baseY = landmarkArray[i + 1];
@@ -119,8 +114,6 @@ const HandLandmarkerComponent: React.FC = () => {
 
     // Step 2: Normalize the coordinates to be in the range [-1, 1]
     const maxValue = Math.max(...landmarkArray.map(Math.abs)); // Get the maximum absolute value
-
-    // Normalize each value
     const normalizedLandmarks = landmarkArray.map((value) => value / maxValue);
 
     return normalizedLandmarks;
@@ -130,11 +123,11 @@ const HandLandmarkerComponent: React.FC = () => {
     if (handLandmarker && isWebcamOn) {
       const interval = setInterval(() => {
         detectHands(handLandmarker); // Run detection for every frame
-      }, 100); // Adjust time interval as needed for performance
+      }, 100);
 
       return () => clearInterval(interval); // Cleanup interval on unmount or when webcam is off
     }
-  }, [handLandmarker, isWebcamOn]); // Run only when handLandmarker or webcam state changes
+  }, [handLandmarker, isWebcamOn]);
 
   const loadModel2 = async () => {
     const model = await tf.loadLayersModel("../public/models/model.json");
@@ -144,57 +137,30 @@ const HandLandmarkerComponent: React.FC = () => {
     setModel(model); // Save the model in state for use
   };
 
-  // Model prediction function with explicit types
-  const detect2 = async (
-    model: tf.LayersModel,
-    landmarks_2d: number[]
-  ): Promise<void> => {
+  // Model prediction function
+  const detect2 = async (model: tf.LayersModel, landmarks_2d: number[]): Promise<void> => {
     const input_data = tf.tensor2d([landmarks_2d], [1, 42]); // Reshape to (1, 42)
+    const predictionTensor = model.predict(input_data);
 
-    const predictionTensor = model.predict(input_data); // This can be a single tensor or an array of tensors
-
-    // If predictionTensor is NOT an array (single tensor)
     if (!Array.isArray(predictionTensor)) {
-      // const predictionTensor = model.predict(input_data);
-      console.log("Prediction Shape:", predictionTensor.shape); // Should be [1, 4]
-
       const prediction = await predictionTensor.data();
-      console.log("Prediction Data:", prediction);
-
-      // const prediction = await predictionTensor.data(); // Get the data from the single tensor
       const probabilities = Array.from(prediction); // Convert to plain array
-      console.log("Probabilities: ", probabilities);
 
-      const options = ["✋", "👊", "🤓👆"];
-      const predictedClassIndex =
-        options[probabilities.indexOf(Math.max(...probabilities))];
+      const options = ["✋", "👊", "🤓👆"]; // Emojis for classification options
+      const predictedClassIndex = probabilities.indexOf(Math.max(...probabilities));
+      const predictedClass = options[predictedClassIndex];
 
-      console.log("Predicted class: ", predictedClassIndex);
-    } else {
-      // If predictionTensor is an array (multi-output model)
-      // You can pick the first tensor or handle it as needed
-      const singlePredictionTensor = predictionTensor[0]; // Select the first tensor
-
-      // Get the data from the selected tensor
-      const prediction = await singlePredictionTensor.data();
-      const probabilities = Array.from(prediction); // Convert to plain array
-      console.log("Probabilities: ", probabilities);
-
-      const options = ["Open", "Closed", "Pointer"];
-      const predictedClassIndex =
-        options[probabilities.indexOf(Math.max(...probabilities))];
-
-      console.log("Predicted class: ", predictedClassIndex);
+      setPredictedClass(predictedClass); // Update the state with the predicted class
+      console.log("Predicted class: ", predictedClass);
     }
   };
 
-  // Load the model when the component is mounted
   useEffect(() => {
     loadModel2();
   }, []);
 
   return (
-    <div className="flex flex-col items-center relative">
+    <div className="flex flex-col gap-4 items-center relative">
       <button
         className="text-gray-50 bg-indigo-600 px-6 py-4 cursor-pointer"
         onClick={toggleWebcam}
@@ -202,16 +168,17 @@ const HandLandmarkerComponent: React.FC = () => {
         {isWebcamOn ? "Turn off Webcam" : "Turn on Webcam"}
       </button>
       <div className="mt-4 relative">
-        {/* react-webcam component */}
         {isWebcamOn && (
           <Webcam mirrored ref={webcamRef} className="w-[720px] h-auto" />
         )}
 
-        {/* Canvas overlay */}
         <canvas
           ref={canvasRef}
           className="absolute top-0 left-0 w-[720px] h-auto"
         />
+      </div>
+      <div>
+        <h1 className="text-5xl">{predictedClass}</h1> {/* Display the predicted class */}
       </div>
     </div>
   );

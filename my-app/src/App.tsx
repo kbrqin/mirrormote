@@ -12,7 +12,7 @@ function App() {
     <div>
       <HandLandmarkerComponent/>
     </div>
-      <div className='flex flex-row'>
+      {/* <div className='flex flex-row'>
         <a href="https://vite.dev" target="_blank">
           <img src={viteLogo} className="logo" alt="Vite logo" />
         </a>
@@ -31,7 +31,7 @@ function App() {
       </div>
       <p className="read-the-docs">
         Click on the Vite and React logos to learn more
-      </p>
+      </p> */}
     </>
   )
 }
