@@ -17,9 +17,9 @@ export const drawHand = (
     const landmarks = predictions.landmarks;
 
     landmarks.forEach((landmark: any) => {
-      ctx.save(); // Save current state
-      ctx.scale(-1, 1); // Flip horizontally
-      ctx.translate(-videoWidth, 0); // Shift back into place
+    //   ctx.save(); // Save current state
+    //   ctx.scale(-1, 1); // Flip horizontally
+    //   ctx.translate(-videoWidth, 0); // Shift back into place
 
       // Iterate through each finger in handMesh
       for (const key in handMesh) {
@@ -31,9 +31,9 @@ export const drawHand = (
 
           // Check if the landmarks exist and have valid x, y values
         //   if (landmark[firstJointIndex] && landmark[secondJointIndex]) {
-            const x1 = landmark[firstJointIndex].x * videoWidth;
+            const x1 = videoWidth - landmark[firstJointIndex].x * videoWidth;
             const y1 = landmark[firstJointIndex].y * videoHeight;
-            const x2 = landmark[secondJointIndex].x * videoWidth;
+            const x2 = videoWidth - landmark[secondJointIndex].x * videoWidth;
             const y2 = landmark[secondJointIndex].y * videoHeight;
 
             // Draw line between the two joints
@@ -51,7 +51,7 @@ export const drawHand = (
       for (let i = 0; i < landmark.length; i++) {
         // Ensure landmark[i] exists and has x, y values
         if (landmark[i]) {
-          const x = landmark[i].x * videoWidth;
+          const x = videoWidth - landmark[i].x * videoWidth;
           const y = landmark[i].y * videoHeight;
 
           // Draw each landmark point
@@ -62,7 +62,7 @@ export const drawHand = (
         }
       }
 
-      ctx.restore(); // Restore the original state
+    //   ctx.restore(); // Restore the original state
     });
   }
 };
