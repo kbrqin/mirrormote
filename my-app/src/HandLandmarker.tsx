@@ -10,17 +10,21 @@ const HandLandmarkerComponent: React.FC = () => {
   const webcamRef = useRef<Webcam | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const [handLandmarker, setHandLandmarker] = useState<HandLandmarker | null>(null); // State for handLandmarker
-  const [model, setModel] = useState<any>(null); // State for the loaded model
-  const [predictedClass, setPredictedClass] = useState<string>(""); // State for predicted class (emoji)
+  const [handLandmarker, setHandLandmarker] = useState<HandLandmarker | null>(
+    null
+  );
+  const [model, setModel] = useState<tf.LayersModel | null>(null);
+  const [predictedClass1, setPredictedClass1] = useState<string>("");
+  const [predictedClass2, setPredictedClass2] = useState<string>("");
 
-  // Function to toggle the webcam on and off
+  // Toggle webcam on/off
   const toggleWebcam = async () => {
     setIsWebcamOn(!isWebcamOn);
 
     if (canvasRef.current) {
       const ctx = canvasRef.current.getContext("2d");
-      if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      if (ctx)
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     }
   };
 
@@ -34,19 +38,19 @@ const HandLandmarkerComponent: React.FC = () => {
         vision,
         {
           baseOptions: {
-            modelAssetPath: `../public/models/hand_landmarker.task`,
+            modelAssetPath: `../models/hand_landmarker.task`,
             delegate: "GPU",
           },
           runningMode: "VIDEO",
           numHands: 2,
         }
       );
-      setHandLandmarker(handLandmarkerInstance); // Store the instance in state
-      console.log("hand landmarker created");
+      setHandLandmarker(handLandmarkerInstance);
+      console.log("Hand landmarker created");
     };
 
     createHandLandmarker();
-  }, []); // Only run once when the component is mounted
+  }, []);
 
   const detectHands = async (handLandmarker: HandLandmarker) => {
     if (
@@ -58,105 +62,109 @@ const HandLandmarkerComponent: React.FC = () => {
       )
     )
       return;
-
+  
     const video = webcamRef.current.video;
     const videoWidth = webcamRef.current.video.videoWidth;
     const videoHeight = webcamRef.current.video.videoHeight;
-
+  
     webcamRef.current.video.width = videoWidth;
     webcamRef.current.video.height = videoHeight;
-
+  
     if (!(canvasRef.current !== null)) return;
-
+  
     canvasRef.current.width = videoWidth;
     canvasRef.current.height = videoHeight;
-
+  
     console.log("setup done");
-
-    const result = await handLandmarker.detectForVideo(
-      video,
-      performance.now()
-    ); // Pass the timestamp
+  
+    const result = await handLandmarker.detectForVideo(video, performance.now());
     console.log(result);
-
-    if (result.landmarks) {
-      // Iterate over each hand and extract 2D landmark coordinates
-      const landmarks = result.landmarks.flatMap(
-        (hand) => hand.map((landmark) => [landmark.x, landmark.y]) // Extract x, y coordinates for each landmark
+  
+    if (result.landmarks.length === 0) return; // No hands detected
+  
+    // Extract landmarks and handedness
+    const hands = result.landmarks.map((landmark, index) => ({
+      landmarks: landmark.flatMap((point) => [point.x, point.y]), // Flatten landmarks to 1D array
+      handedness: result.handedness[index][0].displayName, // "Left" or "Right"
+    }));
+  
+    // Sort hands so that left hand is first, right hand is second (but handednes is mirrored)
+    hands.sort((a, b) => (a.handedness === "Right" ? -1 : 1));
+  
+    // Extract only landmarks in sorted order
+    const sortedLandmarks = hands.map((hand) => hand.landmarks);
+  
+    console.log("Sorted Hands:", hands.map((h) => h.handedness)); // Should log ["Left", "Right"]
+  
+    // Run predictions with sorted order
+    if (model) {
+      const predictions = await Promise.all(
+        sortedLandmarks.map((landmarks) => detect2(model, processLandmarks(landmarks)))
       );
-      const flattenedLandmarks = landmarks.flat(); // Flatten to a 1D array
-      console.log("Landmarks:", flattenedLandmarks);
-
-      // Call the model prediction function
-      if (model && result.landmarks.length > 0) {
-        await detect2(model, processLandmarks(flattenedLandmarks));
-      }
+  
+      setPredictedClass1(predictions[0] || ""); // If left hand exists
+      setPredictedClass2(predictions[1] || ""); // If right hand exists
     }
-
+  
     const ctx = canvasRef.current.getContext("2d");
-    drawHand(result, ctx, videoWidth, videoHeight); // Draw the hand landmarks on the canvas
+    drawHand(result, ctx, videoWidth, videoHeight);
   };
 
   function processLandmarks(landmarkArray: number[]): number[] {
     // Step 1: Convert to relative coordinates
-    let baseX = 0, baseY = 0;
+    let baseX = landmarkArray[0],
+      baseY = landmarkArray[1];
 
     for (let i = 0; i < landmarkArray.length; i += 2) {
-      if (i === 0) {
-        baseX = landmarkArray[i];
-        baseY = landmarkArray[i + 1];
-      }
-
-      // Convert to relative coordinates (shift everything based on the first landmark)
       landmarkArray[i] -= baseX; // Relative x
       landmarkArray[i + 1] -= baseY; // Relative y
     }
 
-    // Step 2: Normalize the coordinates to be in the range [-1, 1]
-    const maxValue = Math.max(...landmarkArray.map(Math.abs)); // Get the maximum absolute value
-    const normalizedLandmarks = landmarkArray.map((value) => value / maxValue);
-
-    return normalizedLandmarks;
+    // Step 2: Normalize to range [-1, 1]
+    const maxValue = Math.max(...landmarkArray.map(Math.abs));
+    return landmarkArray.map((value) => value / maxValue);
   }
 
   useEffect(() => {
     if (handLandmarker && isWebcamOn) {
       const interval = setInterval(() => {
-        detectHands(handLandmarker); // Run detection for every frame
+        detectHands(handLandmarker);
       }, 100);
 
-      return () => clearInterval(interval); // Cleanup interval on unmount or when webcam is off
+      return () => clearInterval(interval);
     }
   }, [handLandmarker, isWebcamOn]);
 
-  const loadModel2 = async () => {
+  const loadModel = async () => {
     const model = await tf.loadLayersModel("../public/models/model.json");
-    console.log("model loaded");
+    console.log("Model loaded");
     model.summary();
-
-    setModel(model); // Save the model in state for use
+    setModel(model);
   };
 
   // Model prediction function
-  const detect2 = async (model: tf.LayersModel, landmarks_2d: number[]): Promise<void> => {
-    const input_data = tf.tensor2d([landmarks_2d], [1, 42]); // Reshape to (1, 42)
+  const detect2 = async (
+    model: tf.LayersModel,
+    landmarks_2d: number[]
+  ): Promise<string> => {
+    const input_data = tf.tensor2d([landmarks_2d], [1, 42]);
     const predictionTensor = model.predict(input_data);
 
     if (!Array.isArray(predictionTensor)) {
       const prediction = await predictionTensor.data();
-      const probabilities = Array.from(prediction); // Convert to plain array
+      const probabilities = Array.from(prediction);
 
-      const options = ["✋", "👊", "🤓👆"]; // Emojis for classification options
-      const predictedClassIndex = probabilities.indexOf(Math.max(...probabilities));
-      const predictedClass = options[predictedClassIndex];
-
-      setPredictedClass(predictedClass); // Update the state with the predicted class
-      console.log("Predicted class: ", predictedClass);
+      const options = ["✋", "👊", "🤓👆"]; // Classification labels
+      const predictedClassIndex = probabilities.indexOf(
+        Math.max(...probabilities)
+      );
+      return options[predictedClassIndex] || "";
     }
+    return "";
   };
 
   useEffect(() => {
-    loadModel2();
+    loadModel();
   }, []);
 
   return (
@@ -171,14 +179,16 @@ const HandLandmarkerComponent: React.FC = () => {
         {isWebcamOn && (
           <Webcam mirrored ref={webcamRef} className="w-[720px] h-auto" />
         )}
-
         <canvas
           ref={canvasRef}
           className="absolute top-0 left-0 w-[720px] h-auto"
         />
       </div>
       <div>
-        <h1 className="text-5xl">{predictedClass}</h1> {/* Display the predicted class */}
+        <h1 className="text-5xl">
+          {predictedClass1 !== "" && predictedClass1}{" "}
+          {predictedClass2 !== "" && predictedClass2}
+        </h1>
       </div>
     </div>
   );
